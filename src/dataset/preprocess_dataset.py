@@ -1,17 +1,3 @@
-# Copyright 2022 Huawei Technologies Co., Ltd
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ============================================================================
 """preprocess dataset"""
 import os
 import argparse
@@ -77,7 +63,7 @@ def main():
             img_ = os.path.join('img', line + '.jpg')
             anno_ = os.path.join('cls_png', line + '.png')
             f.write(f'{img_} {anno_}\n')
-    print('Generate train_list to data_dir.')
+    print('Generate val_list to data_dir.')
     print('Finish.')
 
 

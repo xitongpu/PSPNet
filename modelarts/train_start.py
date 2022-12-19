@@ -2,7 +2,9 @@
 import os
 import ast
 import argparse
-import src.utils.functions_args as fa
+import subprocess
+
+from src.utils import functions_args as fa
 from src.model import pspnet
 from src.model.cell import Aux_CELoss_Cell
 from src.dataset import pt_dataset
@@ -22,55 +24,97 @@ from mindspore.train.callback import LossMonitor, TimeMonitor
 from mindspore.train.callback import ModelCheckpoint, CheckpointConfig
 from mindspore.train.loss_scale_manager import FixedLossScaleManager
 import mindspore.dataset as ds
+import moxing as mox
 
 set_seed(1234)
-rank_id = int(os.getenv('RANK_ID', '0'))
-device_id = int(os.getenv('DEVICE_ID', '0'))
-device_num = int(os.getenv('RANK_SIZE', '1'))
+rank_id = int(os.getenv('RANK_ID'))
+device_id = int(os.getenv('DEVICE_ID'))
+device_num = int(os.getenv('RANK_SIZE'))
 context.set_context(mode=context.GRAPH_MODE, device_target='Ascend')
-Model_Art = False
+Model_Art = True
 
 
 def get_parser():
     """
     Read parameter file
-        -> for ADE20k: ./config/ade20k_pspnet50.yaml
-        -> for voc2012: ./config/voc2012_pspnet50.yaml
+        -> for ADE20k: ./src/config/voc2012_pspnet50.yaml
+        -> for voc2012: ./src/config/voc2012_pspnet50.yaml
     """
     global Model_Art
     parser = argparse.ArgumentParser(description='MindSpore Semantic Segmentation')
     parser.add_argument('--config', type=str, required=True,
                         help='config file')
-    parser.add_argument('--model_art', type=ast.literal_eval, default=False,
+    parser.add_argument('--model_art', type=ast.literal_eval, default=True,
                         help='train on modelArts or not, default: True')
-    parser.add_argument('--data_url', type=str, default='',
-                        help='Location of data.')
-    parser.add_argument('--train_url', type=str, default='',
-                        help='Location of training outputs.')
-    parser.add_argument('--dataset_name', type=str, default='',
-                        help='aux parameter for ModelArt')
-    parser.add_argument('opts', help='see ./config/voc2012_pspnet50.yaml for all options', default=None,
+    parser.add_argument('--obs_data_path', type=str, default='',
+                        help='dataset path in obs')
+    parser.add_argument('--epochs', type=int, default='',
+                        help='epochs for training')
+    parser.add_argument('--obs_save', type=str, default='',
+                        help='.ckpt file save path in obs')
+    parser.add_argument('opts', help='see ./src/config/voc2012_pspnet50.yaml for all options', default=None,
                         nargs=argparse.REMAINDER)
+    #export AIR model
+    parser.add_argument('--device_target', type=str, default='Ascend',
+                        choices=['Ascend', 'GPU'],
+                        help='device id of GPU or Ascend. (Default: Ascend)')
+    parser.add_argument('--file_name', type=str, default='PSPNet', help='export file name')
+    parser.add_argument('--file_format', type=str, default="AIR",
+                        choices=['AIR', 'MINDIR'],
+                        help='export model type')
+    parser.add_argument('--num_classes', type=int, default=21, help='number of classes')
+
     args_ = parser.parse_args()
     if args_.model_art:
-        import moxing as mox
         mox.file.shift('os', 'mox')
         Model_Art = True
         root = "/cache/"
         local_data_path = os.path.join(root, 'data')
-        if args_.dataset_name == 'ade':
-            obs_data_path = "obs://harbin-engineering-uni/PSPnet/data"
-        else:
-            obs_data_path = "obs://harbin-engineering-uni/PSPnet/voc"
+        print("local_data_path=", local_data_path)
         print("########### Downloading data from OBS #############")
-        mox.file.copy_parallel(src_url=obs_data_path, dst_url=local_data_path)
+        mox.file.copy_parallel(src_url=args_.obs_data_path, dst_url=local_data_path)
         print('########### data downloading is completed ############')
     assert args_.config is not None
     cfg = fa.load_cfg_from_cfg_file(args_.config)
     if args_.opts is not None:
         cfg = fa.merge_cfg_from_list(cfg, args_.opts)
+    cfg.epochs = args_.epochs #使用modelarts传参代替yaml文件中的参数
+    cfg.obs_save = args_.obs_save
+    cfg.config = args_.config
     return cfg
 
+
+def _get_last_ckpt(ckpt_dir):
+    ckpt_files = [ckpt_file for ckpt_file in os.listdir(ckpt_dir)
+                  if ckpt_file.endswith('.ckpt')]
+    if not ckpt_files:
+        print("No ckpt file found.")
+        return None
+
+    return os.path.join(ckpt_dir, sorted(ckpt_files)[-1])
+
+
+def _export_air(ckpt_dir):
+    ckpt_file = _get_last_ckpt(ckpt_dir)
+    if not ckpt_file:
+        return
+    print(os.path.abspath("export.py"))
+    print(os.path.realpath("export.py"))
+    export_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "export.py")
+    print("export_file=", export_file)
+    file_name = os.path.join(ckpt_dir, "PSPNet")
+    print("file_name=", file_name)
+    yamlpath = args.config
+    print("args.config=", args.config)
+    cmd = ["python", export_file,
+           f"--yaml_path={yamlpath}",
+           f"--ckpt_file={ckpt_file}",
+           f"--file_name={file_name}",
+           f"--file_format={'AIR'}",
+           f"--device_target={'Ascend'}"]
+    print(f"Start exporting AIR, cmd = {' '.join(cmd)}.")
+    process = subprocess.Popen(cmd, shell=False)
+    process.wait()
 
 class EvalCallBack(Callback):
     """Precision verification using callback function."""
@@ -145,6 +189,7 @@ def psp_train():
         data_path = args.art_data_root
         train_list_path = args.art_train_list
         val_list_path = args.art_val_list
+        print("val_list_path=", val_list_path)
     else:
         pre_path = args.pretrain_path
         data_path = args.data_root
@@ -172,7 +217,6 @@ def psp_train():
 
     # loss
     train_net_loss = Aux_CELoss_Cell(args.classes, ignore_label=255)
-
     steps_per_epoch = train_dataset.get_dataset_size()  # Return the number of batches in an epoch.
     total_train_steps = steps_per_epoch * args.epochs
 
@@ -214,7 +258,7 @@ def psp_train():
     if Model_Art:
         os.path.join('/cache/', 'save')
         ckpoint_cb = ModelCheckpoint(
-            prefix=args.prefix, directory='/cache/save/' + str(device_id), config=config_ck
+            prefix=args.prefix, directory='/cache/save/', config=config_ck #+ str(device_id)
         )
     else:
         ckpoint_cb = ModelCheckpoint(
@@ -223,6 +267,8 @@ def psp_train():
     model.train(
         args.epochs, train_dataset, callbacks=[loss_cb, time_cb, ckpoint_cb, eval_cb], dataset_sink_mode=True,
     )
+
+
     dict_eval = eval_cb.get_dict()
     val_num_list = dict_eval["epoch"]
     val_value = dict_eval["val_loss"]
@@ -231,7 +277,6 @@ def psp_train():
 
     if Model_Art:
         print("######### upload to OBS #########")
-        import moxing as mox
         mox.file.shift('os', 'mox')
         mox.file.copy_parallel(src_url="/cache/save", dst_url=args.obs_save)
 
@@ -240,3 +285,6 @@ if __name__ == "__main__":
     args = get_parser()
     print(args.obs_save)
     psp_train()
+    _export_air(args.obs_save)
+    mox.file.shift('os', 'mox')
+    mox.file.copy_parallel(src_url="/cache/save", dst_url=args.obs_save)

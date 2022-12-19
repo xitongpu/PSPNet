@@ -1,9 +1,9 @@
 
-if [ $# != 2 ]
+if [ $# != 1 ]
 then
     echo "=============================================================================================================="
-    echo "Usage: bash PSPNet/scripts/run_train1p_ascend.sh [YAML_PATH] [DEVICE_ID]"
-    echo "for example: bash PSPNet/scripts/run_train1p_ascend.sh PSPNet/config/voc2012_pspnet50.yaml 0"
+    echo "Usage: bash /PSPNet/scripts/run_eval_onnx_cpu.sh [YAML_PATH]"
+    echo "for example: bash PSPNet/scripts/run_eval_onnx_cpu.sh PSPNet/config/voc2012_pspnet50.yaml"
     echo "=============================================================================================================="
     exit 1
 fi
@@ -13,8 +13,7 @@ mkdir ./LOG
 export YAML_PATH=$1
 export RANK_SIZE=1
 export RANK_ID=0
-export DEVICE_ID=$2
-echo "start training for device $DEVICE_ID"
+echo "start evaluating on CPU"
 env > env.log
 
-python3 train.py --config="$YAML_PATH" > ./LOG/log.txt 2>&1 &
+python3 eval_onnx_cpu.py --config="$YAML_PATH" > ./LOG/eval_onnx.txt 2>&1 &

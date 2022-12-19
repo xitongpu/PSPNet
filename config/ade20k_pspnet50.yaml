@@ -16,7 +16,6 @@ DATA:
 
 TRAIN:
   arch: psp
-  pretrained: 1  # 0: training from scratch; 1: training with the pretrained backbone 
   feature_size: 60
   train_h: 473
   train_w: 473
@@ -52,3 +51,8 @@ TEST:
   result_path: ./result/ade/
   color_txt: ./ade20k/ade20k_colors.txt
   name_txt: ./ade20k/ade20k_names.txt
+  device_target: Ascend
+
+
+ONNX_INFER:
+  onnx_path: /home/mindspore/pspnet/PSPNet/PSPNet.onnx
